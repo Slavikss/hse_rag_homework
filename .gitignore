@@ -8,3 +8,6 @@ __pycache__/
 outputs/
 index/
 /data/reports/
+
+.pytest_cache/
+/data/reports.zip

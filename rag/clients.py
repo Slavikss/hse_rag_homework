@@ -9,6 +9,15 @@ from rag.config import setting
 _local = threading.local()
 _embedding_lock = threading.Lock()
 _embedding_last = 0.0
+_llm_lock = threading.Lock()
+_llm_last = 0.0
+
+def wait_llm_slot():
+    global _llm_last
+    with _llm_lock:
+        delay = 60 / float(setting("LLM_RPM", "10")) + 0.1 - (time.monotonic() - _llm_last)
+        if delay > 0: time.sleep(delay)
+        _llm_last = time.monotonic()
 
 
 def session():
@@ -20,13 +29,14 @@ def session():
 def post(url, **kwargs):
     for attempt in range(6):
         try:
+            if "/v1/messages" in url: wait_llm_slot()
             r = session().post(url, timeout=180, **kwargs)
-            if r.status_code not in (408, 429, 500, 502, 503, 504):
+            if r.status_code not in (408, 429, 500, 502, 503, 504, 529):
                 r.raise_for_status()
                 return r.json()
             r.raise_for_status()
         except (requests.ConnectionError, requests.Timeout, requests.HTTPError) as exc:
-            if isinstance(exc, requests.HTTPError) and exc.response.status_code not in (408,429,500,502,503,504):
+            if isinstance(exc, requests.HTTPError) and exc.response.status_code not in (408,429,500,502,503,504,529):
                 raise
             if attempt == 5:
                 raise

@@ -28,3 +28,15 @@ def test_score_context_deduplicates_pdf_pages():
 
 def test_markdown_json():
     assert parse_json('```json\n{"answer":"ok"}\n```')=={'answer':'ok'}
+
+
+def test_preserves_best_numeric_source_when_generator_uses_equivalent_table():
+    class Retrieval:
+        pages={('report',1):{'doc_id':'report','page':1,'text':'Ending cash 123 456'},
+               ('report',2):{'doc_id':'report','page':2,'text':'Balance cash 123 456'}}
+        def search(self,*args): return list(self.pages.values())
+    r=RAG.__new__(RAG);r.retriever=Retrieval();r.valid={'report'}
+    r.plan=lambda q:[{'query':'ending cash','doc_ids':['report']}]
+    with patch('rag.system.llm',return_value={'answer':'123 456 thousand rubles','evidence':[{'doc_id':'report','pages':[2]}],'searches':[]}):
+        result=r.rag('Ending cash?')
+    assert result['context']==[{'doc_id':'report','pages':[1,2]}]

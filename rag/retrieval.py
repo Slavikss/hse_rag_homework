@@ -1,5 +1,6 @@
 import json
 import re
+from collections import Counter, defaultdict
 import numpy as np
 from rank_bm25 import BM25Okapi
 from langsmith import traceable
@@ -21,6 +22,20 @@ class Retriever:
             raise RuntimeError('Build index first: python -m rag.prepare')
         self.chunks=[json.loads(x) for x in (INDEX/'chunks.jsonl').read_text().splitlines()]
         self.pages={(r['doc_id'],r['page']):r for r in map(json.loads,(INDEX/'pages.jsonl').read_text().splitlines())}
+        self.document_units={}
+        candidates=defaultdict(list)
+        pattern=r'(?:в\s*)?(?:миллиардах|миллионах|тысячах|млрд|млн|тыс[.,]?)[^.,;()\n]{0,70}(?:рублей|руб\.)'
+        for (doc,n),page in self.pages.items():
+            if n<=15:
+                compact=' '.join(page['text'].split())
+                for match in re.finditer(pattern,compact,re.I):
+                    quote=match.group(0)
+                    scale='billion' if re.search('миллиард|млрд',quote,re.I) else ('million' if re.search('миллион|млн',quote,re.I) else 'thousand')
+                    candidates[doc].append((scale,n,quote))
+        for doc,choices in candidates.items():
+            scale=Counter(c[0] for c in choices).most_common(1)[0][0]
+            _,n,quote=next(c for c in choices if c[0]==scale)
+            self.document_units[doc]={'page':n,'quote':quote}
         self.vectors=np.load(INDEX/'vectors.npy')
         self.bm25=BM25Okapi([tokens(r['text']) for r in self.chunks])
 
@@ -40,4 +55,9 @@ class Retriever:
         for i,score in ranks.items():
             r=self.chunks[i];key=(r['doc_id'],r['page'])
             pages[key]=max(pages.get(key,0),score)
-        return [self.pages[key] for key in sorted(pages,key=pages.get,reverse=True)[:k]]
+        ranked=sorted(pages,key=pages.get,reverse=True)[:k]
+        # Financial notes and table headers often continue on the next PDF page.
+        for d,n in ranked[:4]:
+            neighbor=(d,n+1)
+            if neighbor in self.pages and neighbor not in ranked: ranked.append(neighbor)
+        return [self.pages[key] for key in ranked]

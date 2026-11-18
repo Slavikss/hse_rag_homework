@@ -10,6 +10,7 @@ from time import perf_counter
 import uuid
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from rag.system import RAG
+from rag.clients import wait_llm_slot
 from eval.eval_functions import score_context, score_answer
 from eval.evaluator_excel import read_items
 from langsmith import Client, tracing_context, trace
@@ -64,21 +65,23 @@ def main():
         Path(out.with_suffix('.langsmith.json')).write_text(json.dumps({'project':name,'project_id':str(project.id),'project_url':project.url,'dataset':str(ds.id),'public_dataset':dict(share)},ensure_ascii=False,default=str,indent=2))
         print('LangSmith',project.url,flush=True)
     def run(item):
-        with tracing_context(enabled=bool(client),project_name=name):
+        with tracing_context(enabled=bool(client),project_name=name,client=client):
             with trace('RAG evaluation',inputs={'question':item['question']},reference_example_id=examples.get(item['question_id'])) as root:
                 start=perf_counter();pred=system.rag(item['question']);elapsed=perf_counter()-start
                 root.end(outputs={**pred,'time':elapsed})
                 run_id=root.id
         # Official judge is left byte-for-byte unchanged; retry transient failures only.
         for attempt in range(5):
-            try: judged=score_answer(item['gold_answer'],pred['answer']);break
+            try:
+                wait_llm_slot()
+                judged=score_answer(item['gold_answer'],pred['answer']);break
             except Exception:
                 if attempt==4: raise
                 import time;time.sleep(2**attempt)
         result={**item,**pred,**score_context(item['gold_context'],pred['context']),
                 'answer_correctness':judged['answer_correctness'],'judge_reason':judged['reason'],'time':elapsed,'run_id':str(run_id)}
         if client:
-            for k in METRICS: client.create_feedback(run_id,key=k,score=result[k],comment=judged['reason'] if k=='answer_correctness' else None)
+            for k in METRICS: client.create_feedback(run_id,key=k,session_id=project.id,score=result[k],comment=judged['reason'] if k=='answer_correctness' else None)
         return result
     # Append completed rows immediately; --resume never replays them as fresh predictions.
     with journal.open('a' if a.resume else 'w') as f, ThreadPoolExecutor(max_workers=a.workers) as pool:
@@ -88,7 +91,7 @@ def main():
             try: r=job.result()
             except Exception as exc:
                 errors.append({'question_id':jobs[job]['question_id'],'error':str(exc)})
-                print('FAILED',jobs[job]['question_id'],type(exc).__name__,flush=True)
+                print('FAILED',jobs[job]['question_id'],type(exc).__name__,str(exc),flush=True)
                 continue
             rows.append(r);f.write(json.dumps(r,ensure_ascii=False)+'\n');f.flush()
             print(len(rows),'/',len(items),r['question_id'],*[round(r[k],3) for k in METRICS],flush=True)
@@ -102,7 +105,7 @@ def main():
     if client:
         client.flush()
         links=[]
-        for row in rows[:3]: links.append(client.share_run(row['run_id']))
+        for row in sorted(rows,key=lambda r:len(r['agent_steps']),reverse=True)[:3]: links.append(client.share_run(row['run_id']))
         path=out.with_suffix('.langsmith.json');info=json.loads(path.read_text());info['public_traces']=links;path.write_text(json.dumps(info,ensure_ascii=False,indent=2))
         client.update_project(project.id,end_time=datetime.now(timezone.utc))
 

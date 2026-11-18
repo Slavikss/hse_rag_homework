@@ -40,3 +40,8 @@ def test_preserves_best_numeric_source_when_generator_uses_equivalent_table():
     with patch('rag.system.llm',return_value={'answer':'123 456 thousand rubles','evidence':[{'doc_id':'report','pages':[2]}],'searches':[]}):
         result=r.rag('Ending cash?')
     assert result['context']==[{'doc_id':'report','pages':[1,2]}]
+
+
+def test_plain_prose_keeps_numbers_units_and_signs():
+    from rag.text import plain_text
+    assert plain_text('**Расчёт**\n\n- Доход: 1 234,5 млн руб.\n- Убыток: −40 млн руб.')=='Расчёт\n\nДоход: 1 234,5 млн руб. Убыток: −40 млн руб.'

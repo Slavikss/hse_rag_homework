@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from langsmith import traceable
 from rag.config import ROOT
 from rag.clients import llm
+from rag.text import plain_text
 from rag.retrieval import Retriever
 
 PLAN='''Ты планировщик поиска по финансовым отчетам. Разложи вопрос на 1–5 поисковых запросов, при сравнении банков/периодов — отдельный запрос на каждый. Выбери точные doc_ids из каталога. annual=годовой, 6m=полугодовой. Год документа — год отчетного периода; сравнительные данные могут относиться к предыдущему году. Не путай НПФ Газпромбанк-фонд с банком. Верни JSON {"searches":[{"query":"содержательные термины показателя и период", "doc_ids":["..."]}]}.'''
@@ -35,6 +36,7 @@ class RAG:
             unit_notes='\n'.join(f"Общие единицы {d}: {self.retriever.document_units[d]['quote']} (из PDF page {self.retriever.document_units[d]['page']}); локальная явная единица имеет приоритет." for d in sorted({k[0] for k in pages}) if d in getattr(self.retriever,'document_units',{}))
             text=unit_notes+'\n'+'\n\n'.join(f"=== {d} PDF page {n} ===\n{p['text']}" for (d,n),p in pages.items())
             decision=llm(ANSWER, 'ВОПРОС: '+question+'\n'+('Это последний поиск. Дай лучший подтвержденный ответ.\n' if turn==2 else '')+text,6000)
+            decision['answer']=plain_text(decision['answer'])
             steps.append({'turn':turn,'searches':searches,'pages':[list(k) for k in pages],'decision':decision})
             searches=decision.get('searches',[])
             reads=decision.get('read_pages',[])
@@ -59,4 +61,4 @@ class RAG:
                 pattern=r'(?<!\d)'+r'\s*'.join(re.escape(c) for c in digits)+r'(?!\d)'
                 if re.search(pattern,pages[d,n]['text']):
                     evidence[d].add(n);break
-        return {'answer':decision['answer'],'context':[{'doc_id':d,'pages':sorted(ns)} for d,ns in sorted(evidence.items())], 'agent_steps':steps}
+        return {'answer':plain_text(decision['answer']),'context':[{'doc_id':d,'pages':sorted(ns)} for d,ns in sorted(evidence.items())], 'agent_steps':steps}

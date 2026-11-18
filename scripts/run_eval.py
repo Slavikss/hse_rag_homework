@@ -10,7 +10,7 @@ from time import perf_counter
 import uuid
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from rag.system import RAG
-from rag.clients import wait_llm_slot
+from rag.clients import wait_llm_slot, pause_llm
 from eval.eval_functions import score_context, score_answer
 from eval.evaluator_excel import read_items
 from langsmith import Client, tracing_context, trace
@@ -56,14 +56,21 @@ def main():
     name='financial-rag-'+datetime.now().strftime('%Y%m%d-%H%M%S')
     examples={};project=None
     if client:
-        ds=client.create_dataset(dataset_name=name+'-test',description='Financial reports RAG evaluation; references visible only to evaluators')
-        ex=[{'id':str(uuid.uuid4()),'inputs':{'question':r['question']},'outputs':{'gold_answer':r['gold_answer'],'gold_context':r['gold_context']},'metadata':{'question_id':r['question_id']}} for r in items]
-        client.create_examples(dataset_id=ds.id,examples=ex)
-        examples={r['question_id']:e['id'] for r,e in zip(items,ex)}
-        project=client.create_project(name,reference_dataset_id=ds.id,description='Hybrid retrieval + autonomous iterative search + official metrics')
-        share=client.share_dataset(dataset_id=ds.id)
-        Path(out.with_suffix('.langsmith.json')).write_text(json.dumps({'project':name,'project_id':str(project.id),'project_url':project.url,'dataset':str(ds.id),'public_dataset':dict(share)},ensure_ascii=False,default=str,indent=2))
-        print('LangSmith',project.url,flush=True)
+        if a.resume and out.with_suffix('.langsmith.json').exists():
+            info=json.loads(out.with_suffix('.langsmith.json').read_text())
+            name=info['project']
+            project=client.read_project(project_id=info['project_id'])
+            examples={e.metadata['question_id']:str(e.id) for e in client.list_examples(dataset_id=info['dataset'])}
+            print('Resuming LangSmith',project.url,flush=True)
+        else:
+            ds=client.create_dataset(dataset_name=name+'-test',description='Financial reports RAG evaluation; references visible only to evaluators')
+            ex=[{'id':str(uuid.uuid4()),'inputs':{'question':r['question']},'outputs':{'gold_answer':r['gold_answer'],'gold_context':r['gold_context']},'metadata':{'question_id':r['question_id']}} for r in items]
+            client.create_examples(dataset_id=ds.id,examples=ex)
+            examples={r['question_id']:e['id'] for r,e in zip(items,ex)}
+            project=client.create_project(name,reference_dataset_id=ds.id,description='Hybrid retrieval + autonomous iterative search + official metrics')
+            share=client.share_dataset(dataset_id=ds.id)
+            Path(out.with_suffix('.langsmith.json')).write_text(json.dumps({'project':name,'project_id':str(project.id),'project_url':project.url,'dataset':str(ds.id),'public_dataset':dict(share)},ensure_ascii=False,default=str,indent=2))
+            print('LangSmith',project.url,flush=True)
     def run(item):
         with tracing_context(enabled=bool(client),project_name=name,client=client):
             with trace('RAG evaluation',inputs={'question':item['question']},reference_example_id=examples.get(item['question_id'])) as root:
@@ -75,7 +82,8 @@ def main():
             try:
                 wait_llm_slot()
                 judged=score_answer(item['gold_answer'],pred['answer']);break
-            except Exception:
+            except Exception as exc:
+                if getattr(getattr(exc,"response",None),"status_code",None)==429: pause_llm()
                 if attempt==4: raise
                 import time;time.sleep(2**attempt)
         result={**item,**pred,**score_context(item['gold_context'],pred['context']),
@@ -98,6 +106,7 @@ def main():
     if errors:
         out.with_suffix('.errors.json').write_text(json.dumps(errors,ensure_ascii=False,indent=2))
         raise RuntimeError(f'{len(errors)} questions failed; successful predictions saved in {journal}. Use --resume.')
+    out.with_suffix('.errors.json').unlink(missing_ok=True)
     order={r['question_id']:i for i,r in enumerate(items)};rows.sort(key=lambda r:order[r['question_id']])
     excel(rows,out)
     summary={k:mean(r[k] for r in rows) for k in METRICS};summary['questions']=len(rows)

@@ -1,0 +1,7 @@
+{
+  "context_recall": 0.8515366430260047,
+  "context_precision": 0.789598108747045,
+  "answer_correctness": 0.900709219858156,
+  "time": 53.031388812929094,
+  "questions": 141
+}

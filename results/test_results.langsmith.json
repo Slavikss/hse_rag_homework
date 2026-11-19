@@ -1,0 +1,22 @@
+{
+  "project": "financial-rag-20261118-223722",
+  "project_id": "b6b97f87-c143-4750-a9cb-e13270811bd7",
+  "project_url": "https://smith.langchain.com/o/8de72765-9ea4-4c36-b674-789b826c3c1f/projects/p/b6b97f87-c143-4750-a9cb-e13270811bd7",
+  "dataset": "ddf310ae-9e71-4a8d-b2f8-13e5a8265cd7",
+  "public_dataset": {
+    "dataset_id": "ddf310ae-9e71-4a8d-b2f8-13e5a8265cd7",
+    "share_token": "2e07e640-8895-4619-a06f-ebdd24495112",
+    "url": "https://smith.langchain.com/public/2e07e640-8895-4619-a06f-ebdd24495112/d"
+  },
+  "public_traces": [
+    "https://smith.langchain.com/public/ae3904e7-d1bf-49df-8058-16474aa1642e/r",
+    "https://smith.langchain.com/public/ccbb4fb8-5034-4b4c-bf7d-1d80255f9a78/r",
+    "https://smith.langchain.com/public/aaac074f-d2c5-45e0-9f8c-cc70d251e9bf/r"
+  ],
+  "plain_text_presentation": {
+    "note": "Only presentation was changed; financial values and sources were preserved. Changed answers were evaluated again by the unmodified official judge.",
+    "rejudged_questions": [
+      "q_029f46c431cd202e"
+    ]
+  }
+}
